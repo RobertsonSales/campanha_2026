@@ -414,6 +414,23 @@
             box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
         }
 
+        @media (max-width: 768px) {
+            .modal-content {
+                max-width: 100% !important;
+                max-height: 100vh !important;
+                height: 100vh;
+                border-radius: 0 !important;
+                padding: 16px !important;
+                overflow-y: auto;
+            }
+            .pdf-frame {
+                height: 55vh;
+            }
+            .modal.show {
+                align-items: flex-start;
+            }
+        }
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -559,6 +576,26 @@
             margin: 24px 0;
             border-bottom: 1px solid rgba(139, 92, 246, 0.2);
             padding-bottom: 12px;
+        }
+
+        @media (max-width: 768px) {
+            .tabs-container {
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                gap: 6px;
+                padding-bottom: 10px;
+                margin: 16px 0;
+            }
+            .tabs-container::-webkit-scrollbar { display: none; }
+            .nav-tab {
+                white-space: nowrap;
+                flex-shrink: 0;
+                font-size: 12px !important;
+                padding: 10px 12px !important;
+            }
+            .nav-tab i { display: none; }
         }
 
         .file-indicator {
@@ -883,6 +920,13 @@
                 <button class="modal-close" onclick="closePDFModal()">×</button>
             </div>
             <iframe id="pdf-frame" class="pdf-frame" title="Pré-visualização do PDF"></iframe>
+            <!-- Mobile fallback: shown instead of iframe on devices that block blob PDF rendering -->
+            <div id="pdf-mobile-fallback" style="display:none; text-align:center; padding: 48px 20px; border-radius: 12px; background: rgba(15,23,42,0.4); border: 1px dashed rgba(139,92,246,0.3);">
+                <i class="fas fa-file-pdf" style="font-size: 56px; background: linear-gradient(135deg, #a78bfa, #f472b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: block; margin-bottom: 16px;"></i>
+                <p style="color: white; font-size: 17px; font-weight: 700; margin: 0 0 8px 0;">Relatório gerado com sucesso!</p>
+                <p style="color: #94a3b8; font-size: 14px; margin: 0 0 6px 0;">Em dispositivos móveis, a pré-visualização inline não é suportada.</p>
+                <p style="color: #64748b; font-size: 13px; margin: 0;">Use os botões abaixo para abrir ou baixar o documento.</p>
+            </div>
             <div class="modal-footer">
                 <span style="font-size: 12px; color: #94a3b8;">Todos os relatórios ficam disponíveis para visualização antes do download.</span>
                 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
@@ -1076,14 +1120,34 @@
             return startY + chartHeight + 12;
         }
 
+        function isMobile() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+        }
+
         function previewPDFDocument(doc, fileName, title) {
             const blob = doc.output('blob');
             if (currentPdfBlobUrl) URL.revokeObjectURL(currentPdfBlobUrl);
             currentPdfBlobUrl = URL.createObjectURL(blob);
             currentPdfFileName = fileName;
             document.getElementById('pdf-preview-title').textContent = `Visualização do Relatório • ${title}`;
-            document.getElementById('pdf-preview-caption').textContent = 'Revise o documento e, se estiver de acordo, faça o download.';
-            document.getElementById('pdf-frame').src = currentPdfBlobUrl;
+
+            const frame = document.getElementById('pdf-frame');
+            const fallback = document.getElementById('pdf-mobile-fallback');
+
+            if (isMobile()) {
+                // Mobile browsers (iOS Safari, Android Chrome) block blob: PDF in iframes.
+                // Show the fallback panel and keep the iframe blank.
+                frame.style.display = 'none';
+                frame.src = 'about:blank';
+                fallback.style.display = 'block';
+                document.getElementById('pdf-preview-caption').textContent = 'Use os botões abaixo para visualizar ou baixar o relatório.';
+            } else {
+                frame.style.display = 'block';
+                fallback.style.display = 'none';
+                frame.src = currentPdfBlobUrl;
+                document.getElementById('pdf-preview-caption').textContent = 'Revise o documento e, se estiver de acordo, faça o download.';
+            }
+
             document.getElementById('pdf-modal').classList.add('show');
         }
 
@@ -1574,9 +1638,21 @@
         function switchTab(tabNum) {
             currentTab = tabNum;
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+            // Fix: use index instead of event.target (event.target can be the inner <i> icon, not the button)
+            document.querySelectorAll('.nav-tab').forEach((el, i) => el.classList.toggle('active', i === tabNum - 1));
             document.getElementById(`tab-${tabNum}`).classList.add('active');
-            event.target.classList.add('active');
+
+            // Fix: re-render charts after tab becomes visible.
+            // Charts created while the tab is hidden (display:none) get zero dimensions
+            // and never auto-resize on mobile. Destroying and re-creating on activation fixes this.
+            if (demographicData.length || simulationData.length || reunioesData.length) {
+                requestAnimationFrame(() => {
+                    if (tabNum === 1) renderTab1();
+                    else if (tabNum === 2) renderTab2();
+                    else if (tabNum === 3) updateSimParams();
+                    else if (tabNum === 4) renderTab4();
+                });
+            }
         }
 
         // PDF Generation with Professional Layout
@@ -1863,6 +1939,8 @@
         function closePDFModal() {
             document.getElementById('pdf-modal').classList.remove('show');
             document.getElementById('pdf-frame').src = 'about:blank';
+            document.getElementById('pdf-frame').style.display = 'block';
+            document.getElementById('pdf-mobile-fallback').style.display = 'none';
             if (currentPdfBlobUrl) {
                 URL.revokeObjectURL(currentPdfBlobUrl);
                 currentPdfBlobUrl = '';
